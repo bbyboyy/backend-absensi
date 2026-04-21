@@ -50,16 +50,26 @@ app.delete("/delete-user/:id", verifyAdmin, async (req, res) => {
 
     try {
 
+        // hapus attendance dulu
+        const { error: attendanceError } = await supabase
+            .from("attendance")
+            .delete()
+            .eq("userid", userId);
+
+        if (attendanceError) throw attendanceError;
+
+        // ❗ hapus dari profiles (optional tapi disarankan)
+        const { error: profileError } = await supabase
+            .from("profiles")
+            .delete()
+            .eq("id", userId);
+
+        if (profileError) throw profileError;
+
         // ❗ hapus dari auth
         const { error } = await supabase.auth.admin.deleteUser(userId);
 
         if (error) throw error;
-
-        // ❗ hapus dari profiles (optional tapi disarankan)
-        await supabase
-            .from("profiles")
-            .delete()
-            .eq("id", userId);
 
         res.json({ success: true });
 
@@ -67,6 +77,38 @@ app.delete("/delete-user/:id", verifyAdmin, async (req, res) => {
         console.error(err);
         res.status(400).json({ error: err.message });
     }
+});
+
+app.post("/add-attendance", verifyAdmin, async (req, res) => {
+  try {
+    const { userid, latitude, longitude, status, reason } = req.body;
+
+    if (!userid || !status) {
+      return res.status(400).json({ error: "User dan status wajib" });
+    }
+
+    if (status === "Izin" && !reason) {
+      return res.status(400).json({ error: "Alasan wajib untuk izin" });
+    }
+
+    const { error } = await supabase
+      .from("attendance")
+      .insert([{
+        userid: userid,
+        latitude: latitude !== undefined ? latitude : -6.2,   // optional (atau kirim dari frontend)
+        longitude: longitude !== undefined ? longitude : 106.8, // optional
+        status: status,
+        reason: status === "Izin" ? reason : null
+      }]);
+
+    if (error) throw error;
+
+    res.json({ message: "Attendance berhasil ditambahkan" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 async function verifyAdmin(req, res, next) {
