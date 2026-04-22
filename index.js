@@ -111,6 +111,253 @@ app.post("/add-attendance", verifyAdmin, async (req, res) => {
   }
 });
 
+import ExcelJS from "exceljs";
+
+app.get("/export-attendance-rekap", verifyAdmin, async (req, res) => {
+  try {
+
+    // 🔥 ambil data
+    const { data, error } = await supabase
+        .from("attendance_view")
+        .select("*")
+        .order("tanggal", { ascending: true });
+
+    if (error) throw error;
+
+    // =========================
+    // 🧠 1. GROUP TANGGAL PER BULAN
+    // =========================
+    const monthMap = {}; // { "Januari 2026": [1,2,3...] }
+
+    data.forEach(item => {
+      const d = new Date(item.tanggal);
+      const monthName = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+      const day = d.getDate();
+
+      if (!monthMap[monthName]) {
+        monthMap[monthName] = new Set();
+      }
+
+      monthMap[monthName].add(day);
+    });
+
+    // sort tanggal
+    for (let m in monthMap) {
+      monthMap[m] = Array.from(monthMap[m]).sort((a, b) => a - b);
+    }
+
+    // =========================
+    // 🧠 2. GROUP USER
+    // =========================
+    const users = {};
+
+    data.forEach(item => {
+      const name = item.name || "Unknown";
+      const d = new Date(item.tanggal);
+      const key = `${d.toLocaleDateString("id-ID", { month: "long", year: "numeric" })}-${d.getDate()}`;
+
+      if (!users[name]) users[name] = {};
+      users[name][key] = item.status.toUpperCase();
+    });
+
+    // =========================
+    // 📊 3. BUAT EXCEL
+    // =========================
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Rekap Absensi");
+
+    // =========================
+    // 🟦 JUDUL
+    // =========================
+    ws.mergeCells("A1:B1");
+    ws.getCell("A1").value = "REKAP ABSENSI SMB 2026";
+    ws.getCell("A1").font = { bold: true, size: 14 };
+
+    // =========================
+    // 🟦 HEADER ROW 1 (BULAN)
+    // =========================
+    let colIndex = 3; // mulai dari kolom ke-3
+
+    ws.getCell("A2").value = "No";
+    ws.getCell("B2").value = "Nama";
+
+    ws.mergeCells("A2:A3");
+    ws.mergeCells("B2:B3");
+
+    for (let month in monthMap) {
+      const days = monthMap[month];
+      const startCol = colIndex;
+      const endCol = colIndex + days.length - 1;
+
+      ws.mergeCells(2, startCol, 2, endCol);
+      ws.getCell(2, startCol).value = month;
+
+      days.forEach(day => {
+        ws.getCell(3, colIndex).value = day;
+        colIndex++;
+      });
+    }
+
+    // HEADER TOTAL
+    const totalStartCol = colIndex;
+
+    ws.mergeCells(2, totalStartCol, 2, totalStartCol + 2);
+
+    ws.getCell(2, totalStartCol).value = "TOTAL";
+
+    ws.getCell(3, totalStartCol).value = "HADIR";
+    ws.getCell(3, totalStartCol + 1).value = "IZIN";
+    ws.getCell(3, totalStartCol + 2).value = "TERLAMBAT";
+
+    // =========================
+    // 🎨 STYLE HEADER
+    // =========================
+    [2, 3].forEach(rowNum => {
+      ws.getRow(rowNum).eachCell(cell => {
+        cell.font = { bold: true };
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+        cell.border = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" }
+        };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: rowNum === 2 ? "9DC3E6" : "BDD7EE" }
+        };
+      });
+    });
+
+    // =========================
+    // 👤 4. ISI DATA
+    // =========================
+    let rowNum = 4;
+    let no = 1;
+
+    for (const name in users) {
+      let hadir = 0;
+      let izin = 0;
+      let terlambat = 0;
+      let col = 3;  
+
+      const cellNo = ws.getCell(rowNum, 1);
+      cellNo.value = no++;
+      const cellName = ws.getCell(rowNum, 2);
+      cellName.value = name;
+
+      cellNo.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+
+      cellName.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" }
+      };
+
+      for (let month in monthMap) {
+        monthMap[month].forEach(day => {
+          const key = `${month}-${day}`;
+          const status = users[name][key] || "";
+
+          const cell = ws.getCell(rowNum, col);
+          cell.value = status;
+
+          if (status === "HADIR") hadir++;
+          if (status === "IZIN") izin++;
+          if (status === "TERLAMBAT") terlambat++;
+
+          // 🎨 warna
+          if (status === "HADIR") {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "C6EFCE" } };
+          } else if (status === "IZIN") {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "F4B084" } };
+          } else if (status === "TERLAMBAT") {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEB9C" } };
+          }
+
+          cell.alignment = { horizontal: "center" };
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+          };
+
+          col++;
+        });
+      }
+
+      const cellHadir = ws.getCell(rowNum, col);
+      cellHadir.value = hadir;
+      const cellIzin = ws.getCell(rowNum, col + 1);
+      cellIzin.value = izin;
+      const cellTerlambat = ws.getCell(rowNum, col + 2);
+      cellTerlambat.value = terlambat;
+
+      cellHadir.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "C6EFCE" } };
+      cellIzin.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "F4B084" } };
+      cellTerlambat.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEB9C" } };
+
+
+      // style
+      for (let i = 0; i < 3; i++) {
+        const c = ws.getCell(rowNum, col + i);
+        c.alignment = { horizontal: "center" };
+        c.font = { bold: true };
+        c.border = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" }
+        };
+      }
+
+      rowNum++;
+    }
+
+    // =========================
+    // 📏 AUTO WIDTH
+    // =========================
+    ws.getColumn(1).width = 5;
+    ws.getColumn(2).width = 25;
+
+    for (let i = 3; i <= ws.columnCount; i++) {
+      ws.getColumn(i).width = 10;
+    }
+
+    ws.getColumn(colIndex).width = 12;
+    ws.getColumn(colIndex + 1).width = 12;
+    ws.getColumn(colIndex + 2).width = 15;
+
+    // =========================
+    // 📥 DOWNLOAD
+    // =========================
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=rekap-absensi-full.xlsx"
+    );
+
+    await wb.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function verifyAdmin(req, res, next) {
 
     const authHeader = req.headers.authorization;
