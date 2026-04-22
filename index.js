@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import webpush from "web-push";
+import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
@@ -12,6 +14,12 @@ app.use(express.json());
 const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE
+);
+
+webpush.setVapidDetails(
+  "mailto:your@email.com",
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
 );
 
 // ✅ CREATE USER (ANTI 429)
@@ -358,6 +366,16 @@ app.get("/export-attendance-rekap", verifyAdmin, async (req, res) => {
   }
 });
 
+app.get("/test-notif", async (req, res) => {
+  try {
+    await sendReminder("ini test notif 🚀");
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function verifyAdmin(req, res, next) {
 
     const authHeader = req.headers.authorization;
@@ -399,6 +417,97 @@ async function verifyAdmin(req, res, next) {
         res.status(500).json({ error: err.message });
     }
 }
+
+// ✅ KIRIM REMINDER PUSH NOTIFICATION
+async function sendReminder(message) {
+    console.log("Mengirim reminder:", message);
+  const { start, end } = getTodayRange();
+
+  // ambil yg sudah absen
+  const { data: attended } = await supabase
+    .from("attendance")
+    .select("userid")
+    .gte("timestamp", start.toISOString())
+    .lte("timestamp", end.toISOString());
+
+  const attendedIds = new Set(attended.map(a => a.userid));
+
+  // ambil semua user
+  const { data: users } = await supabase
+    .from("profiles")
+    .select("id, name");
+
+  // filter belum absen
+  const notYet = users.filter(u => !attendedIds.has(u.id));
+  console.log("User yang belum absen:", notYet.map(u => u.name).join(", "));
+
+  // ambil subscription aktif
+  const { data: subs } = await supabase
+    .from("push_subscriptions")
+    .select("*")
+    .eq("is_active", true);
+
+  console.log("Push subscriptions aktif:", subs.length);
+
+  const userMap = {};
+  users.forEach(u => userMap[u.id] = u.name);
+
+  for (const sub of subs) {
+
+    // hanya kirim ke user yg belum absen
+    if (!notYet.find(u => u.id === sub.user_id)) continue;
+
+    const name = userMap[sub.user_id] || "User";
+    console.log(`Mengirim notif ke ${name} (${sub.endpoint})`);
+
+    const payload = JSON.stringify({
+      title: "Reminder Absensi",
+      body: `Halo ${name}, ${message}`
+    });
+
+    try {
+      await webpush.sendNotification({
+        endpoint: sub.endpoint,
+        keys: {
+          p256dh: sub.p256dh,
+          auth: sub.auth
+        }
+      }, payload);
+      console.log("SUCCESS SEND");
+
+    } catch (err) {
+      console.error("PUSH ERROR:", err);
+      if (err.statusCode === 410) {
+        await supabase
+          .from("push_subscriptions")
+          .delete()
+          .eq("endpoint", sub.endpoint);
+      }
+    }
+  }
+}
+
+// helper untuk dapatkan range waktu hari ini (untuk query attendance)
+function getTodayRange() {
+  const start = new Date();
+  start.setHours(0,0,0,0);
+
+  const end = new Date();
+  end.setHours(23,59,59,999);
+
+  return { start, end };
+}
+
+// minggu jam 09:00
+cron.schedule("0 9 * * 0", async () => {
+  console.log("Cron job running at 09:00 every Sunday");
+  await sendReminder("waktunya absen ya 👋");
+});
+
+// minggu jam 09:55
+cron.schedule("55 9 * * 0", async () => {
+  await sendReminder("sisa 5 menit lagi ⏰");
+});
 
 const PORT = process.env.PORT || 3000;
 
