@@ -368,7 +368,28 @@ app.get("/export-attendance-rekap", verifyAdmin, async (req, res) => {
 
 app.get("/test-notif", async (req, res) => {
   try {
-    await sendReminder("ini test notif 🚀");
+    await sendReminder(0, "ini test notif 🚀");
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/send-notif", async (req, res) => {
+  try {
+    const { alluser, message} = req.body;
+
+    if (!alluser || !message) {
+      return res.status(400).json({ error: "AllUser dan message wajib" });
+    }
+
+    let alluserValue = 1;
+    if (alluser === "0") {
+      alluserValue = 0;
+    }
+
+    await sendReminder(alluserValue, message);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -419,8 +440,9 @@ async function verifyAdmin(req, res, next) {
 }
 
 // ✅ KIRIM REMINDER PUSH NOTIFICATION
-async function sendReminder(message) {
-    console.log("Mengirim reminder:", message);
+async function sendReminder(alluser, message) {
+  console.log("All user:", alluser);
+  console.log("Mengirim reminder:", message);
   const { start, end } = getTodayRange();
 
   // ambil yg sudah absen
@@ -455,7 +477,8 @@ async function sendReminder(message) {
   for (const sub of subs) {
 
     // hanya kirim ke user yg belum absen
-    if (!notYet.find(u => u.id === sub.user_id)) continue;
+
+    if (alluser === 0 && !notYet.find(u => u.id === sub.user_id)) continue;
 
     const name = userMap[sub.user_id] || "User";
     console.log(`Mengirim notif ke ${name} (${sub.endpoint})`);
@@ -498,15 +521,27 @@ function getTodayRange() {
   return { start, end };
 }
 
+
+// Schedule cron job untuk kirim reminder setiap minggu
 // minggu jam 09:00
 cron.schedule("0 9 * * 0", async () => {
   console.log("Cron job running at 09:00 every Sunday");
-  await sendReminder("waktunya absen ya 👋");
+  await sendReminder(0, "waktunya absen ya 👋");
 });
 
 // minggu jam 09:55
 cron.schedule("55 9 * * 0", async () => {
-  await sendReminder("sisa 5 menit lagi ⏰");
+  await sendReminder(0, "yuk absen, sisa 5 menit lagi ⏰");
+});
+
+// minggu jam 11:50
+cron.schedule("50 11 * * 0", async () => {
+  await sendReminder(0, "absen akan ditutup dalam waktu 10 menit lagi 🚫");
+});
+
+// minggu jam 11:55
+cron.schedule("55 11 * * 0", async () => {
+  await sendReminder(0, "absen gasiihh, sisa 5 menit lagi tutup nih anjay 😑🚫");
 });
 
 const PORT = process.env.PORT || 3000;
