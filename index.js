@@ -397,6 +397,32 @@ app.post("/send-notif", async (req, res) => {
   }
 });
 
+app.post("/cron-reminder", async (req, res) => {
+    try {
+        const token = req.headers["CRON_SECRET"];
+        const { alluser, message } = req.body;
+
+        if (token !== process.env.CRON_SECRET) {
+            console.warn("Unauthorized cron access attempt with token:", token);
+            return res.status(403).json({ error: "Unauthorized" });
+        }
+
+        if (!alluser || !message) {
+          return res.status(400).json({ error: "AllUser dan message wajib" });
+        }
+
+        console.log("External cron triggered, alluser:", alluser, "message:", message);
+
+        await sendReminder(0, message);
+
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 async function verifyAdmin(req, res, next) {
 
     const authHeader = req.headers.authorization;
