@@ -398,6 +398,7 @@ app.post("/send-notif", async (req, res) => {
 });
 
 app.get("/ping", (_, res) => {
+  console.log("Received ping at", new Date().toISOString());
   res.send("ok");
 });
 
@@ -553,10 +554,11 @@ function getTodayRange() {
 
 
 // Schedule cron job untuk kirim reminder setiap minggu
-// minggu jam 09:00
-cron.schedule("0 9 * * 0", async () => {
+// minggu jam 18:00
+cron.schedule("22 18 * * *", async () => {
   console.log("Cron job running at 09:00 every Sunday");
-  await sendReminder(0, "waktunya absen ya 👋");
+  // await sendReminder(0, "waktunya absen ya 👋");
+  await sendReminder(0, "[TESTING NOTIF PRE-PROD] waktunya absen ya 👋");
 });
 
 // minggu jam 09:55
