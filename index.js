@@ -397,6 +397,10 @@ app.post("/send-notif", async (req, res) => {
   }
 });
 
+app.get("/ping", (_, res) => {
+  res.send("ok");
+});
+
 app.post("/cron-reminder", async (req, res) => {
     try {
         const token = req.headers["CRON_SECRET"];
